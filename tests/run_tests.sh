@@ -42,6 +42,11 @@ run "flash storage (A/B, torn writes)" "$OUT/storage_test"
 $CC -o "$OUT/recovery_test" tests/recovery_test.c
 run "application USB recovery and boot-loop guard" "$OUT/recovery_test"
 
+$CC -o "$OUT/lcd_seq_test" tests/lcd_seq_test.c
+run "LCD init: the stock panel setup (VCOM, voltages, gamma) before DISPON" "$OUT/lcd_seq_test"
+$CC -DLCD_PANEL_ON=0 -o "$OUT/lcd_seq_test0" tests/lcd_seq_test.c
+run "LCD init: LCD_PANEL_ON=0 sends no panel register" "$OUT/lcd_seq_test0"
+
 $CC -o "$OUT/arranger_test" tests/arranger_test.c
 run "song order, timing, repeats and missing scenes" "$OUT/arranger_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/song_audio_test" tests/song_audio_test.c -lm

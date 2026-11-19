@@ -94,9 +94,9 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
     lcd_data(px, w * h * 2u);
 }
 
-/* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion;
- * voltage and gamma stay at the defaults. Format: cmd, n, n data bytes;
- * cmd 0x00 = wait (data byte: ~ms). */
+/* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion
+ * (LCD_SEQ), then the panel's own voltages and gamma (LCD_PANEL). Format:
+ * cmd, n, n data bytes; cmd 0x00 = wait (data byte: ~ms). */
 static const uint8_t LCD_SEQ[] = {
     0x01, 0,                     /* SWRESET */
     0x00, 1, 150,
@@ -108,22 +108,53 @@ static const uint8_t LCD_SEQ[] = {
     0x13, 0,                     /* NORON */
 };
 
-static void lcd_init(void)
+/* The panel setup of M-VAVE's own firmware: the same table in V15 and V16
+ * (their app.bin, after SLPOUT; COLMOD, MADCTL and INVON as above). Left at the
+ * ST7789V's reset values (VCOMS 0x20, GCTRL 0x35, VRHS 0x0B, its default gamma)
+ * the panel of a 2026 FM-1 (UC25HQ80 flash) reaches full level within the first
+ * 2 of 32 steps: greys turn white, the dark shades of one hue run together;
+ * with them its ramps are smooth, as on the stock firmware (tested on the unit).
+ * Sent on every FM-1, as the stock firmware does. */
+static const uint8_t LCD_PANEL[] = {
+    0xB2, 5, 0x0C, 0x0C, 0x0C, 0x00, 0x33,   /* PORCTRL: porch */
+    0xB7, 1, 0x56,                           /* GCTRL: VGH / VGL */
+    0xBB, 1, 0x18,                           /* VCOMS */
+    0xC0, 1, 0x2C,                           /* LCMCTRL */
+    0xC2, 1, 0x01,                           /* VDVVRHEN */
+    0xC3, 1, 0x1F,                           /* VRHS */
+    0xC4, 1, 0x20,                           /* VDVS */
+    0xC6, 1, 0x0F,                           /* FRCTRL2: 60 Hz */
+    0xD0, 2, 0xA6, 0xA1,                     /* PWCTRL1: AVDD, AVCL, VDS */
+    0xE0, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,   /* PVGAMCTRL */
+    0xE1, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,   /* NVGAMCTRL */
+};
+#ifndef LCD_PANEL_ON
+#define LCD_PANEL_ON 1             /* 0: the controller's reset values (SLOOP 2.8.5 and before) */
+#endif
+
+static void lcd_seq(const uint8_t *s, uint32_t n)
 {
     uint32_t r, x;
-    fm1_lcd_hw_init();
-    lcd_spin(2000000u);
-    for (r = 0; r < sizeof LCD_SEQ; r += 2u + LCD_SEQ[r + 1u]) {
-        if (LCD_SEQ[r] == 0x00u) {                       /* pseudo command: wait */
-            lcd_spin(LCD_SEQ[r + 2u] * 25000u);          /* ~1 ms per unit (lcd_spin(3000000) ~ 120 ms) */
+    for (r = 0; r < n; r += 2u + s[r + 1u]) {
+        if (s[r] == 0x00u) {                             /* pseudo command: wait */
+            lcd_spin(s[r + 2u] * 25000u);                /* ~1 ms per unit (lcd_spin(3000000) ~ 120 ms) */
             continue;
         }
-        lcd_cmd(LCD_SEQ[r]);
-        for (x = 0; x < LCD_SEQ[r + 1u]; x++)
-            lcd_small[x] = LCD_SEQ[r + 2u + x];
-        if (LCD_SEQ[r + 1u])
-            lcd_data(lcd_small, LCD_SEQ[r + 1u]);
+        lcd_cmd(s[r]);
+        for (x = 0; x < s[r + 1u]; x++)
+            lcd_small[x] = s[r + 2u + x];
+        if (s[r + 1u])
+            lcd_data(lcd_small, s[r + 1u]);
     }
+}
+
+static void lcd_init(void)
+{
+    fm1_lcd_hw_init();
+    lcd_spin(2000000u);
+    lcd_seq(LCD_SEQ, sizeof LCD_SEQ);
+    if (LCD_PANEL_ON)
+        lcd_seq(LCD_PANEL, sizeof LCD_PANEL);
     fm1_lcd_baud(LCD_BAUD);
     lcd_fill(0, 0, 240, 240, 0);
     lcd_cmd(0x29);
